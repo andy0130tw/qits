@@ -1,5 +1,5 @@
 CXX ?= g++
-CPPFLAGS = -g -Wall -Wno-unused-result
+CPPFLAGS = -O2 -Wall -Wno-unused-result
 
 all: qits
 clean:

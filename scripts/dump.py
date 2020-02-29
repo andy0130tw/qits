@@ -88,7 +88,9 @@ with open(sys.argv[1], 'rb') as f:
                 buf.append(r)
             buf.append('\n')
 
-        if diff >= 5:
+        if diff >= 4:
+            print(f'Difficulty {diff}, omitted')
+            print()
             continue
 
         print(''.join(buf))

@@ -45,78 +45,10 @@ enum class Direction {
     _ALL,
 };
 
-struct BoardConfigration {
+struct BoardConfiguration {
     vector<int> fires;
     vector<unsigned char> iceType;
     ObjectType map[MAP_SIZE];
-    char fireToIndex[MAP_SIZE];
-    int moveDest[static_cast<int>(Direction::_ALL)][MAP_SIZE];
-
-    void preprocess() {
-        computeFireToIndex();
-        computeMoveDest();
-    }
-
-private:
-    void computeFireToIndex() {
-        for (int i = 0; i < MAP_SIZE; i++) {
-            fireToIndex[i] = -1;
-        }
-        for (size_t i = 0; i < fires.size(); i++) {
-            fireToIndex[fires[i]] = i;
-        }
-    }
-
-    void computeMoveDest() {
-        // for a static block (except fire, because they can be removed),
-        // moveDest is not defined
-        // or it points to its nearest
-        //  - non-empty block of specified direction, or
-        //  - one cell off wall
-
-        #define LOOP_BODY(DIR)  {  \
-                int pos = base + offs;  \
-                if (map[pos] == ObjectType::WALL) {  \
-                    moveDest[static_cast<int>(DIR)][pos] = -1;  \
-                    bound = pos + step;  /* overflowed value is not used :) */  \
-                } else {  \
-                    moveDest[static_cast<int>(DIR)][pos] = bound;  \
-                    if (map[pos] != ObjectType::EMPTY) {  \
-                        bound = pos;  \
-                    }  \
-                }  \
-            }
-
-        for (int base = 0; base < MAP_SIZE; base += MAP_W) {
-            int bound = base, step = 1;
-            for (int offs = 0; offs < MAP_W; offs += step) {
-                LOOP_BODY(Direction::LEFT);
-            }
-        }
-
-        for (int base = 0; base < MAP_SIZE; base += MAP_W) {
-            int bound = base + MAP_W - 1, step = -1;
-            for (int offs = MAP_W - 1; offs > 0; offs += step) {
-                LOOP_BODY(Direction::RIGHT);
-            }
-        }
-
-        for (int base = 0; base < MAP_W; base += 1) {
-            int bound = base, step = MAP_W;
-            for (int offs = 0; offs < MAP_SIZE; offs += step) {
-                LOOP_BODY(Direction::UP);
-            }
-        }
-
-        for (int base = 0; base < MAP_W; base += 1) {
-            int bound = base + MAP_SIZE - MAP_W, step = -MAP_W;
-            for (int offs = MAP_SIZE; offs > 0; offs += step) {
-                LOOP_BODY(Direction::DOWN);
-            }
-        }
-
-        #undef LOOP_BODY
-    }
 };
 
 struct InitialState {
@@ -133,12 +65,88 @@ struct State {
     int magicianPos;
 
     /* only meaningful when age > 0 */
+    uint64_t hash;
     int movedIceIndex;
-    int newPosition;
+    short int oldPosition;
+    short int newPosition;
 
     bitset<MAX_FIRE> clearedFires;
 };
 
+struct BoardView {
+    char iceToIndex[MAP_SIZE];
+    char fireToIndex[MAP_SIZE];
+    unsigned int vis[MAP_SIZE];
+    unsigned int ts;
+    unsigned int magicianPos;
+    static const unsigned int TS_MAX = 1 << 28;
+    static const unsigned int OBSTACLE = -1024;
+    static int next[MAP_SIZE][static_cast<int>(Direction::_ALL)];
+    static bool nextInited;
+
+    BoardView(): vis(), ts(0) {
+        if (!nextInited) {
+            initNextTable();
+        }
+
+        for (int i = 0; i < MAP_SIZE; i++) {
+            iceToIndex[i] = -1;
+            fireToIndex[i] = -1;
+        }
+    }
+
+    inline bool isObstacle(int pos) {
+        return vis[pos] == BoardView::OBSTACLE;
+    }
+
+    void tick() {
+        if (ts < BoardView::TS_MAX) {
+            ts++;
+        } else {
+            for (int i = 0; i < MAP_SIZE; i++) {
+                if (vis[i] < TS_MAX) {
+                    vis[i] = 0;
+                }
+            }
+            ts = 1;
+        }
+    }
+
+    int canPushTo(int pos, Direction d) {
+        if (!(isObstacle(pos) && iceToIndex[pos] >= 0)) {
+            return -1;
+        }
+
+        int pnext = pos, peek;
+        while (peek = next[pnext][static_cast<int>(d)], peek > 0) {
+            if (isObstacle(peek) && fireToIndex[peek] < 0) {
+                break;
+            }
+            pnext = peek;
+        }
+
+        if (pnext == pos) {
+            return -1;
+        }
+        return pnext;
+    }
+
+    void initNextTable() {
+        for (int i = 0; i < MAP_H; i++) {
+            for (int j = 0; j < MAP_W; j++) {
+                int p = i * MAP_W + j;
+                next[p][static_cast<int>(Direction::UP)]    = (i != 0         ? p-MAP_W : -1);
+                next[p][static_cast<int>(Direction::DOWN)]  = (i != (MAP_H-1) ? p+MAP_W : -1);
+                next[p][static_cast<int>(Direction::LEFT)]  = (j != 0         ? p-1     : -1);
+                next[p][static_cast<int>(Direction::RIGHT)] = (j != (MAP_W-1) ? p+1     : -1);
+            }
+        }
+        nextInited = true;
+    }
+};
+
+int BoardView::next[][static_cast<int>(Direction::_ALL)];
+bool BoardView::nextInited;
 
 ObjectType reprToObjectType(char c) {
     switch (c) {
@@ -183,7 +191,7 @@ vector<int> icePositionsAtState(const State& state) {
     return poss;
 }
 
-void printConfiguration(BoardConfigration& board, State& state) {
+void printConfiguration(BoardConfiguration& board, State& state) {
     char buf[MAP_SIZE] {};
 
     for (int i = 0; i < MAP_SIZE; i++) {
@@ -214,65 +222,124 @@ void printConfiguration(BoardConfigration& board, State& state) {
     }
 }
 
-// returns the position it stops at, if the ice block of index `idx`
-// is pushed toward that direction. If it encounters a fire first, the
-// position of that fire is returned instead.
-int moveToward(const BoardConfigration& board, const State& s, unsigned int idx, Direction d) {
-    auto ices = icePositionsAtState(s);
-    int posOrig = ices[idx];
+// check for reachability & normalize magician position
+void exploreBoard(const BoardConfiguration& board, BoardView& bview) {
+    // BFS to explore reachable positions of magician
+    vector<vector<int>> pushables;
+    pushables.resize(board.iceType.size());
+    auto& vis = bview.vis;
+    bview.tick();
 
-    int posCand = posOrig;
+    int normalizedPosition = bview.magicianPos;
+    queue<int> q;
+    vis[bview.magicianPos] = bview.ts;
+    q.push(bview.magicianPos);
 
-    while (1) {
-        int newPos = board.moveDest[static_cast<int>(d)][posCand];
-        // be careful of infinite loop!
-        if (newPos == posCand) {
-            break;
-        }
-        posCand = newPos;
-        int fidx = board.fireToIndex[posCand];
-        // continue moving if a fire is cleared
-        if (!(fidx >= 0 && s.clearedFires[fidx])) {
-            break;
+
+    for (auto& x: pushables) {
+        for (int i = 0; i < static_cast<int>(Direction::_ALL); i++) {
+            x.push_back(-1);
         }
     }
 
-    // note that either value is used in each branch; no need to
-    // update these value if posCand is updated
-    int rowCand = posCand / MAP_W;
-    int colCand = posCand % MAP_W;
+    while (!q.empty()) {
+        int s = q.front();
+        q.pop();
 
-    // do a search on ice blocks to "limit" the pos an ice can go
-    if (d == Direction::LEFT) {
-        for (auto b: ices) {
-            if (b / MAP_W == rowCand && b > posCand && b < posOrig) {
-                posCand = b + 1;
+        if (board.map[s] == ObjectType::WALL) {
+            vis[s] = BoardView::OBSTACLE;
+            continue;
+        }
+
+        if (s < normalizedPosition) {
+            normalizedPosition = s;
+        }
+
+        int t, dest;
+        // left
+        if (t = s-1, s % MAP_W != 0) {
+            if (dest = bview.canPushTo(t, Direction::LEFT), dest >= 0) {
+                pushables[bview.iceToIndex[t]][(int)Direction::LEFT] = dest;
+            } else if (vis[t] < bview.ts) {
+                vis[t] = bview.ts;
+                q.push(t);
             }
         }
-    } else if (d == Direction::RIGHT) {
-        for (auto b: ices) {
-            if (b / MAP_W == rowCand && b > posOrig && b < posCand) {
-                posCand = b - 1;
+        // right
+        if (t = s+1, t % MAP_W != 0) {
+            if (dest = bview.canPushTo(t, Direction::RIGHT), dest >= 0) {
+                pushables[bview.iceToIndex[t]][(int)Direction::RIGHT] = dest;
+            } else if (vis[t] < bview.ts) {
+                vis[t] = bview.ts;
+                q.push(t);
             }
         }
-    } else if (d == Direction::UP) {
-        for (auto b: ices) {
-            if (b % MAP_W == colCand && b > posCand && b < posOrig) {
-                posCand = b + MAP_W;
+        // up
+        if (t = s-MAP_W, t >= 0) {
+            if (dest = bview.canPushTo(t, Direction::UP), dest >= 0) {
+                pushables[bview.iceToIndex[t]][(int)Direction::UP] = dest;
+            } else if (vis[t] < bview.ts) {
+                vis[t] = bview.ts;
+                q.push(t);
             }
         }
-    } else {  // d == Direction::DOWN
-        for (auto b: ices) {
-            if (b % MAP_W == colCand && b > posOrig && b < posCand) {
-                posCand = b - MAP_W;
+        // down
+        if (t = s+MAP_W, t < MAP_SIZE) {
+            if (dest = bview.canPushTo(t, Direction::DOWN), dest >= 0) {
+                pushables[bview.iceToIndex[t]][(int)Direction::DOWN] = dest;
+            } else if (vis[t] < bview.ts) {
+                vis[t] = bview.ts;
+                q.push(t);
             }
         }
     }
 
-    return posCand;
+    printf("Normalized pos: %d\n", normalizedPosition);
+    bview.magicianPos = normalizedPosition;
+
+    for (int i = 0; i < MAP_H; i++) {
+        for (int j = 0; j < MAP_W; j++) {
+            unsigned int val = vis[i * MAP_W + j];
+            if (bview.iceToIndex[i * MAP_W + j] >= 0) {
+                printf("%2d ", bview.iceToIndex[i * MAP_W + j]);
+                if (val != BoardView::OBSTACLE) {
+                    printf("[[reserve not set]]");
+                }
+            } else if (val == BoardView::OBSTACLE) {
+                printf(" X ");
+            } else if (val == bview.ts) {
+                printf(" . ");
+            } else {
+                printf(" _ ");
+            }
+        }
+        printf("\n");
+    }
+
+    printf("Pushables ---\n");
+    for (size_t i = 0; i < pushables.size(); i++) {
+        bool any = false;
+        for (int j = 0; j < 4; j++) {
+            if (pushables[i][j] >= 0) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) continue;
+
+        printf("%3zd: ", i);
+        for (int j = 0; j < 4; j++) {
+            if (pushables[i][j] >= 0) {
+                printf("%c: %3d ", "^v<>"[j], pushables[i][j]);
+            } else {
+                printf("       ");
+            }
+        }
+        printf("\n");
+    }
 }
 
-bool readFloorFileFromStdin(BoardConfigration& board, InitialState& state_init, State& state_root) {
+bool readFloorFileFromStdin(BoardConfiguration& board, InitialState& state_init, State& state_root) {
     for (int i = 0; i < MAP_H; i++) {
         int idxBase = i * MAP_W;
         int idx = idxBase;
@@ -326,8 +393,26 @@ bool readFloorFileFromStdin(BoardConfigration& board, InitialState& state_init, 
     return true;
 }
 
+BoardView initBoardView(const BoardConfiguration& board, const InitialState& state_init) {
+    BoardView bview{};
+
+    for (size_t i = 0; i < state_init.icePositions.size(); i++) {
+        int p = state_init.icePositions[i];
+        bview.iceToIndex[p] = i;
+        bview.vis[p] = BoardView::OBSTACLE;
+    }
+
+    for (size_t i = 0; i < board.fires.size(); i++) {
+        int p = board.fires[i];
+        bview.fireToIndex[p] = i;
+        bview.vis[p] = BoardView::OBSTACLE;
+    }
+
+    return bview;
+}
+
 int main() {
-    BoardConfigration board {};
+    BoardConfiguration board {};
     InitialState state_init {};
     State state_root {.initial = &state_init};
 
@@ -338,8 +423,22 @@ int main() {
         return 1;
     }
 
-    board.preprocess();
     // TODO: normalize magician position
 
     printConfiguration(board, state_root);
+
+    BoardView bview = initBoardView(board, state_init);
+    bview.magicianPos = state_root.magicianPos;
+
+    exploreBoard(board, bview);
+
+    // for (int i = 0; i < MAP_H; i++) {
+    //     for (int j = 0; j < MAP_W; j++) {
+    //         printf("%3d ", board.moveDest[2][i * MAP_W + j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // int p = moveToward(board, state_root, 0, Direction::RIGHT);
+    // printf("%d\n", p);
 }
