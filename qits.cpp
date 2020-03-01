@@ -71,20 +71,35 @@ struct State {
     short int newPosition;
 
     bitset<MAX_FIRE> clearedFires;
+
+    void print() {
+        printf("<State age=%d, pos=%d", age, magicianPos);
+        if (age == 0) {
+            printf(">\n");
+            return;
+        }
+        printf(", #%d: %d -> %d, cf=[", movedIceIndex, oldPosition, newPosition);
+        for (size_t i = 0; i < clearedFires.size(); i++) {
+            if (clearedFires[i]) printf("%zd,", i);
+        }
+        printf("]>\n");
+    }
 };
 
 struct BoardView {
+    const BoardConfiguration& config;
     char iceToIndex[MAP_SIZE];
     char fireToIndex[MAP_SIZE];
     unsigned int vis[MAP_SIZE];
     unsigned int ts;
     unsigned int magicianPos;
     static const unsigned int TS_MAX = 1 << 28;
-    static const unsigned int OBSTACLE = -1024;
+    static const unsigned int WALL = -1024;
+    static const unsigned int MARKED = -1023;
     static int next[MAP_SIZE][static_cast<int>(Direction::_ALL)];
     static bool nextInited;
 
-    BoardView(): vis(), ts(0) {
+    BoardView(const BoardConfiguration& config): config(config), vis(), ts(0) {
         if (!nextInited) {
             initNextTable();
         }
@@ -95,9 +110,8 @@ struct BoardView {
         }
     }
 
-    inline bool isObstacle(int pos) {
-        return vis[pos] == BoardView::OBSTACLE;
-    }
+    inline bool isWall(int pos) { return vis[pos] == BoardView::WALL; }
+    inline bool isMarked(int pos) { return vis[pos] == BoardView::MARKED; }
 
     void tick() {
         if (ts < BoardView::TS_MAX) {
@@ -112,23 +126,61 @@ struct BoardView {
         }
     }
 
-    int canPushTo(int pos, Direction d) {
-        if (!(isObstacle(pos) && iceToIndex[pos] >= 0)) {
-            return -1;
-        }
+    void print() {
+        printf("Normalized pos: %d\n", magicianPos);
 
-        int pnext = pos, peek;
-        while (peek = next[pnext][static_cast<int>(d)], peek > 0) {
-            if (isObstacle(peek) && fireToIndex[peek] < 0) {
-                break;
+
+        printf("   +");
+        for (int j = 0; j < MAP_W; j++) {
+            printf("-%02d-", j);
+        }
+        printf("\n");
+
+        for (int i = 0; i < MAP_H; i++) {
+            printf("%3d|", i * 20);
+            for (int j = 0; j < MAP_W; j++) {
+                unsigned int p = i * MAP_W + j;
+                unsigned int val = vis[p];
+                if (iceToIndex[p] >= 0) {
+                    printf("%c%2d ", config.iceType[iceToIndex[p]] ? '$' : '%', iceToIndex[p]);
+                    if (val != BoardView::WALL) {
+                        printf("[[reserve not set]]");
+                    }
+                } else if (val == BoardView::WALL) {
+                    printf("  X ");
+                } else if (val == BoardView::MARKED) {
+                    if (fireToIndex[p] >= 0) {
+                        printf("*%2d ", fireToIndex[p]);
+                    } else {
+                        printf("  ! ");
+                    }
+                } else if (val == ts) {
+                    // marked as reachable
+                    if (p == magicianPos) {
+                        printf(" &. ");
+                    } else {
+                        printf("  . ");
+                    }
+                } else {
+                    // unexplored empty area
+                    printf("  _ ");
+                }
             }
-            pnext = peek;
+            printf("\n");
         }
+    }
 
-        if (pnext == pos) {
+    int canPushTo(int pos, Direction d) {
+        // only an ice block can be pushed
+        if (!(isWall(pos) && iceToIndex[pos] >= 0)) {
             return -1;
         }
-        return pnext;
+
+        int peek = next[pos][static_cast<int>(d)];
+        if (peek > 0 && !isWall(peek)) {
+            return peek;
+        }
+        return -1;
     }
 
     void initNextTable() {
@@ -169,6 +221,14 @@ ObjectType reprToObjectType(char c) {
 char objectTypeToRepr(ObjectType tp) {
     const char idx2repr[] = " #%*-$@?<>^v+?";
     return idx2repr[static_cast<int>(tp)];
+}
+
+InitialState* findInitialState(const State& state) {
+    const State* s = &state;
+    while (s->age != 0) {
+        s = s->previous;
+    }
+    return s->initial;
 }
 
 vector<int> icePositionsAtState(const State& state) {
@@ -222,11 +282,49 @@ void printConfiguration(BoardConfiguration& board, State& state) {
     }
 }
 
+State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
+    int bidx = bview.iceToIndex[pos];
+    bool isGoldIce = (bview.config.iceType[bidx] == 1);
+    State newState{s};
+
+    newState.previous = const_cast<State*>(&s);
+    newState.age = s.age + 1;
+    newState.movedIceIndex = bidx;
+    newState.oldPosition = static_cast<short int>(pos);
+
+    short int npos = newState.oldPosition, peek;
+
+    while (peek = bview.next[npos][static_cast<int>(d)], peek > 0) {
+        if (bview.isWall(peek)) {
+            break;
+        }
+
+        npos = peek;
+
+        if (bview.config.map[peek] == ObjectType::RECYCLER) {
+            npos = -1;
+            break;
+        } else if (bview.isMarked(peek)) {
+            if (bview.fireToIndex[peek] >= 0) {
+                // encounter a FIRE
+                newState.clearedFires[bview.fireToIndex[peek]] = 1;
+                if (!isGoldIce) {
+                    npos = -1;
+                    break;
+                }
+            }
+        }
+    }
+
+    newState.newPosition = npos;
+    return newState;
+}
+
 // check for reachability & normalize magician position
-void exploreBoard(const BoardConfiguration& board, BoardView& bview) {
+void exploreBoard(BoardView& bview) {
     // BFS to explore reachable positions of magician
     vector<vector<int>> pushables;
-    pushables.resize(board.iceType.size());
+    pushables.resize(bview.config.iceType.size());
     auto& vis = bview.vis;
     bview.tick();
 
@@ -245,11 +343,6 @@ void exploreBoard(const BoardConfiguration& board, BoardView& bview) {
     while (!q.empty()) {
         int s = q.front();
         q.pop();
-
-        if (board.map[s] == ObjectType::WALL) {
-            vis[s] = BoardView::OBSTACLE;
-            continue;
-        }
 
         if (s < normalizedPosition) {
             normalizedPosition = s;
@@ -294,27 +387,9 @@ void exploreBoard(const BoardConfiguration& board, BoardView& bview) {
         }
     }
 
-    printf("Normalized pos: %d\n", normalizedPosition);
     bview.magicianPos = normalizedPosition;
 
-    for (int i = 0; i < MAP_H; i++) {
-        for (int j = 0; j < MAP_W; j++) {
-            unsigned int val = vis[i * MAP_W + j];
-            if (bview.iceToIndex[i * MAP_W + j] >= 0) {
-                printf("%2d ", bview.iceToIndex[i * MAP_W + j]);
-                if (val != BoardView::OBSTACLE) {
-                    printf("[[reserve not set]]");
-                }
-            } else if (val == BoardView::OBSTACLE) {
-                printf(" X ");
-            } else if (val == bview.ts) {
-                printf(" . ");
-            } else {
-                printf(" _ ");
-            }
-        }
-        printf("\n");
-    }
+    bview.print();
 
     printf("Pushables ---\n");
     for (size_t i = 0; i < pushables.size(); i++) {
@@ -394,18 +469,26 @@ bool readFloorFileFromStdin(BoardConfiguration& board, InitialState& state_init,
 }
 
 BoardView initBoardView(const BoardConfiguration& board, const InitialState& state_init) {
-    BoardView bview{};
+    BoardView bview(board);
+
+    for (int p = 0; p < MAP_SIZE; p++) {
+        if (board.map[p] == ObjectType::RECYCLER) {
+            bview.vis[p] = BoardView::MARKED;
+        } else if (board.map[p] == ObjectType::WALL) {
+            bview.vis[p] = BoardView::WALL;
+        }
+    }
 
     for (size_t i = 0; i < state_init.icePositions.size(); i++) {
         int p = state_init.icePositions[i];
         bview.iceToIndex[p] = i;
-        bview.vis[p] = BoardView::OBSTACLE;
+        bview.vis[p] = BoardView::WALL;
     }
 
     for (size_t i = 0; i < board.fires.size(); i++) {
         int p = board.fires[i];
         bview.fireToIndex[p] = i;
-        bview.vis[p] = BoardView::OBSTACLE;
+        bview.vis[p] = BoardView::MARKED;
     }
 
     return bview;
@@ -430,15 +513,8 @@ int main() {
     BoardView bview = initBoardView(board, state_init);
     bview.magicianPos = state_root.magicianPos;
 
-    exploreBoard(board, bview);
+    exploreBoard(bview);
 
-    // for (int i = 0; i < MAP_H; i++) {
-    //     for (int j = 0; j < MAP_W; j++) {
-    //         printf("%3d ", board.moveDest[2][i * MAP_W + j]);
-    //     }
-    //     printf("\n");
-    // }
-
-    // int p = moveToward(board, state_root, 0, Direction::RIGHT);
-    // printf("%d\n", p);
+    // State s2 = pushIceBlock(bview, state_root, 233, Direction::UP);
+    // s2.print();
 }
