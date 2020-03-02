@@ -127,9 +127,6 @@ struct BoardView {
     }
 
     void print() {
-        printf("Normalized pos: %d\n", magicianPos);
-
-
         printf("   +");
         for (int j = 0; j < MAP_W; j++) {
             printf("-%02d-", j);
@@ -143,9 +140,8 @@ struct BoardView {
                 unsigned int val = vis[p];
                 if (iceToIndex[p] >= 0) {
                     printf("%c%2d ", config.iceType[iceToIndex[p]] ? '$' : '%', iceToIndex[p]);
-                    if (val != BoardView::WALL) {
-                        printf("[[reserve not set]]");
-                    }
+                    // note that the underlying cell may have a non-EMPTY ObjectType
+                    // e.g. recycler
                 } else if (val == BoardView::WALL) {
                     printf("  X ");
                 } else if (val == BoardView::MARKED) {
@@ -168,16 +164,18 @@ struct BoardView {
             }
             printf("\n");
         }
+
+        printf("Normalized pos: %d\n", magicianPos);
     }
 
     int canPushTo(int pos, Direction d) {
         // only an ice block can be pushed
-        if (!(isWall(pos) && iceToIndex[pos] >= 0)) {
+        if (iceToIndex[pos] < 0) {
             return -1;
         }
 
         int peek = next[pos][static_cast<int>(d)];
-        if (peek > 0 && !isWall(peek)) {
+        if (peek > 0 && !isWall(peek) && iceToIndex[peek] < 0) {
             return peek;
         }
         return -1;
@@ -482,7 +480,6 @@ BoardView initBoardView(const BoardConfiguration& board, const InitialState& sta
     for (size_t i = 0; i < state_init.icePositions.size(); i++) {
         int p = state_init.icePositions[i];
         bview.iceToIndex[p] = i;
-        bview.vis[p] = BoardView::WALL;
     }
 
     for (size_t i = 0; i < board.fires.size(); i++) {

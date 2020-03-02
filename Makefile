@@ -5,4 +5,4 @@ all: qits
 clean:
 	rm -f qits
 zobrist_values:
-	python scripts/gen_zobrist_values.py
+	python scripts/gen_zobrist_values.py > zobrist_values.h
