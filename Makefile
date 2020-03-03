@@ -1,9 +1,16 @@
 CXX ?= g++
-CPPFLAGS = -O2 -Wall -Wno-unused-result
-LDLIBS = board_view.o
+CPPFLAGS = -g -Wall -Wno-unused-result
+LIBS = qits.o board_view.o
 
-all: board_view.o qits
+LINK.o = $(LINK.cc)
+
+all: qits
+qits: $(LIBS)
+
 clean:
-	rm -f board_view.o qits
+	rm -f qits.o board_view.o qits
 zobrist_values:
 	python scripts/gen_zobrist_values.py > zobrist_values.h
+
+qits.o: qits.h
+board_view.o: qits.h board_view.h
