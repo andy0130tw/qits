@@ -2,6 +2,8 @@
 #include <vector>
 #include <queue>
 #include <bitset>
+#include <unordered_map>
+#include <map>
 #include <algorithm>
 #include "zobrist_values.h"
 
@@ -45,6 +47,43 @@ enum class Direction {
     _ALL,
 };
 
+using PatType = bitset<MAX_FIRE>;
+
+class PatternDatabase {
+public:
+    PatternDatabase() {
+        reset();
+    }
+    void reset() {
+        id2pat.clear();
+        id2pat.reserve(131072);
+        pat2id.clear();
+        // initialize an empty pattern as id 0
+        queryByPat({});
+    }
+    unsigned int queryByPat(PatType pat) {
+        auto it = pat2id.find(pat);
+        if (it != pat2id.end()) {
+            return it->second;
+        }
+
+        int newId = id2pat.size();
+        pat2id.insert({pat, newId});
+        id2pat.push_back(pat);
+        return newId;
+    }
+
+    PatType queryById(unsigned int id) {
+        if (id >= id2pat.size()) {
+            return PatType(0);
+        }
+        return id2pat[id];
+    }
+private:
+    unordered_map<PatType, unsigned int> pat2id;
+    vector<PatType> id2pat;
+};
+
 struct BoardConfiguration {
     vector<int> fires;
     vector<unsigned char> iceType;
@@ -63,6 +102,7 @@ struct State {
 
     unsigned int age;
     int magicianPos;
+    static PatternDatabase& patdb;
 
     /* only meaningful when age > 0 */
     uint64_t hash;
@@ -70,17 +110,29 @@ struct State {
     short int oldPosition;
     short int newPosition;
 
-    bitset<MAX_FIRE> clearedFires;
+    unsigned int clearedFiresPatId;
+
+    PatType getClearedFires() const {
+        auto kk = State::patdb.queryById(clearedFiresPatId);
+        return kk;
+    }
+
+    unsigned int setClearedFiresPat(PatType pat) {
+        unsigned int id = State::patdb.queryByPat(pat);
+        return (clearedFiresPatId = id);
+    }
 
     void print() {
         printf("<State age=%d, pos=%d", age, magicianPos);
-        if (age == 0) {
-            printf(">\n");
-            return;
-        }
-        printf(", #%d: %d -> %d, cf=[", movedIceIndex, oldPosition, newPosition);
-        for (size_t i = 0; i < clearedFires.size(); i++) {
-            if (clearedFires[i]) printf("%zd,", i);
+        if (age > 0) {
+            auto clearedFires = State::patdb.queryById(clearedFiresPatId);
+            printf(", #%d: %d -> %d, cf=[", movedIceIndex, oldPosition, newPosition);
+            bool first = true;
+            for (size_t i = 0; i < clearedFires.size(); i++) {
+                if (!clearedFires[i]) continue;
+                printf(first ? "%zd" : ",%zd", i);
+                first = false;
+            }
         }
         printf("]>\n");
     }
@@ -93,13 +145,15 @@ struct BoardView {
     unsigned int vis[MAP_SIZE];
     unsigned int ts;
     unsigned int magicianPos;
+    uint64_t hash;
+
     static const unsigned int TS_MAX = 1 << 28;
     static const unsigned int WALL = -1024;
     static const unsigned int MARKED = -1023;
     static int next[MAP_SIZE][static_cast<int>(Direction::_ALL)];
     static bool nextInited;
 
-    BoardView(const BoardConfiguration& config): config(config), vis(), ts(0) {
+    BoardView(const BoardConfiguration& config): config(config), vis(), ts(0), hash(0) {
         if (!nextInited) {
             initNextTable();
         }
@@ -168,6 +222,10 @@ struct BoardView {
         printf("Normalized pos: %d\n", magicianPos);
     }
 
+    inline bool isFresh(int pos) {
+        return (iceToIndex[pos] < 0 && vis[pos] < ts);
+    }
+
     int canPushTo(int pos, Direction d) {
         // only an ice block can be pushed
         if (iceToIndex[pos] < 0) {
@@ -181,7 +239,24 @@ struct BoardView {
         return -1;
     }
 
-    void initNextTable() {
+    void updateHash(int pos, ObjectType t) {
+        const uint64_t* blk;
+        switch (t) {
+        case ObjectType::ICE:      blk = ZOBRIST_VALUES[0]; break;
+        case ObjectType::FIRE:     blk = ZOBRIST_VALUES[1]; break;
+        case ObjectType::ICE_GOLD: blk = ZOBRIST_VALUES[2]; break;
+        case ObjectType::MAGICIAN: blk = ZOBRIST_VALUES[3]; break;
+        default:
+            // fprintf(stderr, "hash upd tp=%zd pos=%d\n",
+            //         (blk - ZOBRIST_VALUES[0]) / MAP_SIZE,
+            //         pos);
+            __builtin_unreachable();
+        }
+
+        hash ^= blk[pos];
+    }
+
+    static void initNextTable() {
         for (int i = 0; i < MAP_H; i++) {
             for (int j = 0; j < MAP_W; j++) {
                 int p = i * MAP_W + j;
@@ -195,6 +270,9 @@ struct BoardView {
     }
 };
 
+static PatternDatabase PATTERN_DB_GLOBAL {};
+
+PatternDatabase& State::patdb = PATTERN_DB_GLOBAL;
 int BoardView::next[][static_cast<int>(Direction::_ALL)];
 bool BoardView::nextInited;
 
@@ -290,6 +368,8 @@ State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
     newState.movedIceIndex = bidx;
     newState.oldPosition = static_cast<short int>(pos);
 
+    PatType npat = s.getClearedFires();
+
     short int npos = newState.oldPosition, peek;
 
     while (peek = bview.next[npos][static_cast<int>(d)], peek > 0) {
@@ -305,7 +385,7 @@ State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
         } else if (bview.isMarked(peek)) {
             if (bview.fireToIndex[peek] >= 0) {
                 // encounter a FIRE
-                newState.clearedFires[bview.fireToIndex[peek]] = 1;
+                npat[bview.fireToIndex[peek]] = 1;
                 if (!isGoldIce) {
                     npos = -1;
                     break;
@@ -315,6 +395,7 @@ State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
     }
 
     newState.newPosition = npos;
+    newState.setClearedFiresPat(npat);
     return newState;
 }
 
@@ -330,7 +411,6 @@ void exploreBoard(BoardView& bview) {
     queue<int> q;
     vis[bview.magicianPos] = bview.ts;
     q.push(bview.magicianPos);
-
 
     for (auto& x: pushables) {
         for (int i = 0; i < static_cast<int>(Direction::_ALL); i++) {
@@ -351,7 +431,7 @@ void exploreBoard(BoardView& bview) {
         if (t = s-1, s % MAP_W != 0) {
             if (dest = bview.canPushTo(t, Direction::LEFT), dest >= 0) {
                 pushables[bview.iceToIndex[t]][(int)Direction::LEFT] = dest;
-            } else if (vis[t] < bview.ts) {
+            } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
             }
@@ -360,7 +440,7 @@ void exploreBoard(BoardView& bview) {
         if (t = s+1, t % MAP_W != 0) {
             if (dest = bview.canPushTo(t, Direction::RIGHT), dest >= 0) {
                 pushables[bview.iceToIndex[t]][(int)Direction::RIGHT] = dest;
-            } else if (vis[t] < bview.ts) {
+            } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
             }
@@ -369,7 +449,7 @@ void exploreBoard(BoardView& bview) {
         if (t = s-MAP_W, t >= 0) {
             if (dest = bview.canPushTo(t, Direction::UP), dest >= 0) {
                 pushables[bview.iceToIndex[t]][(int)Direction::UP] = dest;
-            } else if (vis[t] < bview.ts) {
+            } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
             }
@@ -378,7 +458,7 @@ void exploreBoard(BoardView& bview) {
         if (t = s+MAP_W, t < MAP_SIZE) {
             if (dest = bview.canPushTo(t, Direction::DOWN), dest >= 0) {
                 pushables[bview.iceToIndex[t]][(int)Direction::DOWN] = dest;
-            } else if (vis[t] < bview.ts) {
+            } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
             }
@@ -480,12 +560,14 @@ BoardView initBoardView(const BoardConfiguration& board, const InitialState& sta
     for (size_t i = 0; i < state_init.icePositions.size(); i++) {
         int p = state_init.icePositions[i];
         bview.iceToIndex[p] = i;
+        bview.updateHash(p, ObjectType::ICE);
     }
 
     for (size_t i = 0; i < board.fires.size(); i++) {
         int p = board.fires[i];
         bview.fireToIndex[p] = i;
         bview.vis[p] = BoardView::MARKED;
+        bview.updateHash(p, ObjectType::FIRE);
     }
 
     return bview;

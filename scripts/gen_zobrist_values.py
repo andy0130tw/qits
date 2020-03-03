@@ -5,7 +5,7 @@ size = 20 * 14
 categories = ['ICE', 'FIRE', 'ICE_GOLD', 'MAGICIAN']
 
 
-print(f'static const unsigned int ZOBRIST_VALUES[][{size}] = {{')
+print(f'static const uint64_t ZOBRIST_VALUES[][{size}] = {{')
 
 for cat in categories:
     nums = [hex(random.getrandbits(N)) for _ in range(size)]
