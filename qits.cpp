@@ -54,6 +54,9 @@ public:
     PatternDatabase() {
         reset();
     }
+
+    auto size() { return id2pat.size(); }
+
     void reset() {
         id2pat.clear();
         id2pat.reserve(131072);
@@ -61,13 +64,14 @@ public:
         // initialize an empty pattern as id 0
         queryByPat({});
     }
+
     unsigned int queryByPat(PatType pat) {
         auto it = pat2id.find(pat);
         if (it != pat2id.end()) {
             return it->second;
         }
 
-        int newId = id2pat.size();
+        int newId = size();
         pat2id.insert({pat, newId});
         id2pat.push_back(pat);
         return newId;
@@ -100,17 +104,18 @@ struct State {
         State* previous;        // otherwise
     };
 
-    unsigned int age;
+    uint64_t hash;
     int magicianPos;
-    static PatternDatabase& patdb;
 
     /* only meaningful when age > 0 */
-    uint64_t hash;
-    int movedIceIndex;
+    unsigned short int age;
+    short int movedIceIndex;
     short int oldPosition;
     short int newPosition;
 
     unsigned int clearedFiresPatId;
+
+    static PatternDatabase& patdb;
 
     PatType getClearedFires() const {
         auto kk = State::patdb.queryById(clearedFiresPatId);
