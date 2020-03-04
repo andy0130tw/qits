@@ -24,10 +24,34 @@ struct BoardView {
     inline bool isMarked(int pos) { return vis[pos] == MARKED; }
     inline bool isFresh(int pos) { return (iceToIndex[pos] < 0 && vis[pos] < ts); }
 
-    void tick();
+    inline void tick() {
+        if (ts < BoardView::TS_MAX) {
+            ts++;
+        } else {
+            for (int i = 0; i < MAP_SIZE; i++) {
+                if (vis[i] < TS_MAX) {
+                    vis[i] = 0;
+                }
+            }
+            ts = 1;
+        }
+    }
+
     void print();
-    bool canPushTo(int pos, Direction d);
+    inline bool canPushTo(int pos, Direction d) {
+        // only an ice block can be pushed
+        if (iceToIndex[pos] < 0) {
+            return false;
+        }
+
+        int peek = next[pos][static_cast<int>(d)];
+        if (peek > 0 && !isWall(peek) && iceToIndex[peek] < 0) {
+            return true;
+        }
+        return false;
+    }
     void updateHash(int pos, ObjectType t);
+    void setMagicianPos(unsigned int npos);
 
     void apply(const BoardChange& change);
     void unapply(const BoardChange& change);

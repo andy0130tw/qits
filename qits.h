@@ -107,7 +107,7 @@ struct State {
         State* previous;        // otherwise
     };
 
-    uint64_t hash;
+    // uint64_t hash;
     int magicianPos;
 
     /* only meaningful when age > 0 */

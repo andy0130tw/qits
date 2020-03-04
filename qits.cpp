@@ -196,11 +196,7 @@ vector<int> exploreBoard(BoardView& bview) {
         }
     }
 
-    if (bview.magicianPos != normalizedPosition) {
-        bview.updateHash(bview.magicianPos, ObjectType::MAGICIAN);
-        bview.updateHash(normalizedPosition, ObjectType::MAGICIAN);
-        bview.magicianPos = normalizedPosition;
-    }
+    bview.setMagicianPos(normalizedPosition);
 
     return pushables;
 }
@@ -295,15 +291,7 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
         return false;
     }
 
-    bool found = true;
-    PatType pat = s.getClearedFires();
-    for (size_t i = 0; i < bview.config.fires.size(); i++) {
-        if (pat[i] != 1) {
-            found = false;
-            break;
-        }
-    }
-    if (found) {
+    if (s.clearedFiresPatId == 1) {
         return true;
     }
 
@@ -315,6 +303,7 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
         // printf("depth=%u, idx=%d, dir=%d\n", depth, idx, enc & 0xff);
 
         uint64_t hashBefore = bview.hash;
+        unsigned int magicianPosOld = bview.magicianPos;
 
         auto change = pushIceBlock(bview, s, idx, dir);
         bview.apply(change);
@@ -366,6 +355,16 @@ int main() {
     bview.magicianPos = state_root.magicianPos;
     bview.updateHash(bview.magicianPos, ObjectType::MAGICIAN);
 
+    PatType completedPat{};
+
+    for (size_t i = 0; i < board.fires.size(); i++) {
+        completedPat[i] = 1;
+    }
+
+    if (State::patdb.queryByPat(completedPat) != 1) {
+        printf("Owo no!\n");
+    }
+
     pushablesCache[0] = exploreBoard(bview);
     stateHashTable.insert(bview.hash);
 
@@ -378,24 +377,27 @@ int main() {
         solution.reserve(lim);
         bool s = dfs(bview, state_root, 0, lim);
 
+        printf("Explored %zd states\n", stateHashTable.size());
+        printf("Patterns generated = %zd\n", State::patdb.size());
+
         if (s) {
             printf("====== SOLVED! ======\n");
 
             reverse(solution.begin(), solution.end());
 
             for (auto& step: solution) {
+                exploreBoard(bview);
                 bview.print();
                 printf("STEP -->  ");
                 step.state.print();
                 bview.apply(step);
             }
+            exploreBoard(bview);
             bview.print();
             printf("====== END OF SOLUTION ======\n");
             solved = true;
             break;
         }
-
-        printf("Explored %zd states\n", stateHashTable.size());
     }
 
     if (!solved) {

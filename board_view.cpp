@@ -17,19 +17,6 @@ BoardView::BoardView(const BoardConfiguration& config):
     }
 }
 
-void BoardView::tick() {
-    if (ts < BoardView::TS_MAX) {
-        ts++;
-    } else {
-        for (int i = 0; i < MAP_SIZE; i++) {
-            if (vis[i] < TS_MAX) {
-                vis[i] = 0;
-            }
-        }
-        ts = 1;
-    }
-}
-
 void BoardView::print() {
     printf("   +");
     for (int j = 0; j < MAP_W; j++) {
@@ -38,7 +25,7 @@ void BoardView::print() {
     printf("\n");
 
     for (int i = 0; i < MAP_H; i++) {
-        printf("%3d|", i * 20);
+        printf("%3d|", i * MAP_W);
         for (int j = 0; j < MAP_W; j++) {
             unsigned int p = i * MAP_W + j;
             unsigned int val = vis[p];
@@ -72,19 +59,6 @@ void BoardView::print() {
     printf("Normalized pos: %d\n", magicianPos);
 }
 
-bool BoardView::canPushTo(int pos, Direction d) {
-    // only an ice block can be pushed
-    if (iceToIndex[pos] < 0) {
-        return false;
-    }
-
-    int peek = next[pos][static_cast<int>(d)];
-    if (peek > 0 && !isWall(peek) && iceToIndex[peek] < 0) {
-        return true;
-    }
-    return false;
-}
-
 void BoardView::updateHash(int pos, ObjectType t) {
     const uint64_t* blk;
     switch (t) {
@@ -102,6 +76,14 @@ void BoardView::updateHash(int pos, ObjectType t) {
     //         pos);
 
     hash ^= blk[pos];
+}
+
+void BoardView::setMagicianPos(unsigned int npos) {
+    if (magicianPos != npos) {
+        updateHash(magicianPos, ObjectType::MAGICIAN);
+        updateHash(npos, ObjectType::MAGICIAN);
+        magicianPos = npos;
+    }
 }
 
 void BoardView::moveIceBlock(int idx, int from, int to) {
