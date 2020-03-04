@@ -20,14 +20,18 @@ struct BoardView {
 
     BoardView(const BoardConfiguration& config);
 
-    inline bool isWall(int pos) { return vis[pos] == BoardView::WALL; }
-    inline bool isMarked(int pos) { return vis[pos] == BoardView::MARKED; }
+    inline bool isWall(int pos) { return vis[pos] == WALL; }
+    inline bool isMarked(int pos) { return vis[pos] == MARKED; }
     inline bool isFresh(int pos) { return (iceToIndex[pos] < 0 && vis[pos] < ts); }
 
     void tick();
     void print();
-    int canPushTo(int pos, Direction d);
+    bool canPushTo(int pos, Direction d);
     void updateHash(int pos, ObjectType t);
+
+    void apply(const BoardChange& change);
+    void unapply(const BoardChange& change);
+    void transit(const State& s1, const State& s2);
 
     static void initNextTable() {
         for (int i = 0; i < MAP_H; i++) {
@@ -41,6 +45,8 @@ struct BoardView {
         }
         nextInited = true;
     }
+
+    void moveIceBlock(int idx, int from, int to);
 };
 
 #endif  // __QITS_BOARD_VIEW_H

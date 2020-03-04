@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cassert>
 #include "board_view.h"
 
 int BoardView::next[][static_cast<int>(Direction::_ALL)];
@@ -71,17 +72,17 @@ void BoardView::print() {
     printf("Normalized pos: %d\n", magicianPos);
 }
 
-int BoardView::canPushTo(int pos, Direction d) {
+bool BoardView::canPushTo(int pos, Direction d) {
     // only an ice block can be pushed
     if (iceToIndex[pos] < 0) {
-        return -1;
+        return false;
     }
 
     int peek = next[pos][static_cast<int>(d)];
     if (peek > 0 && !isWall(peek) && iceToIndex[peek] < 0) {
-        return peek;
+        return true;
     }
-    return -1;
+    return false;
 }
 
 void BoardView::updateHash(int pos, ObjectType t) {
@@ -92,11 +93,73 @@ void BoardView::updateHash(int pos, ObjectType t) {
     case ObjectType::ICE_GOLD: blk = ZOBRIST_VALUES[2]; break;
     case ObjectType::MAGICIAN: blk = ZOBRIST_VALUES[3]; break;
     default:
-        // fprintf(stderr, "hash upd tp=%zd pos=%d\n",
-        //         (blk - ZOBRIST_VALUES[0]) / MAP_SIZE,
-        //         pos);
         __builtin_unreachable();
     }
 
+
+    // fprintf(stderr, "hash upd tp=%zd pos=%d\n",
+    //         (blk - ZOBRIST_VALUES[0]) / MAP_SIZE,
+    //         pos);
+
     hash ^= blk[pos];
+}
+
+void BoardView::moveIceBlock(int idx, int from, int to) {
+    // TODO: check if this application is legitimate
+    assert(from != to);
+
+    auto iceType = (config.iceType[idx] == 1 ? ObjectType::ICE_GOLD : ObjectType::ICE);
+
+    if (from >= 0) {
+        iceToIndex[from] = -1;
+        updateHash(from, iceType);
+    }
+    // for compatibility of unapply
+
+    if (to >= 0) {
+        iceToIndex[to] = idx;
+        updateHash(to, iceType);
+    }
+    // else it is elimiated from map, do nothing
+}
+
+void BoardView::apply(const BoardChange& change) {
+    auto& s = change.state;
+    assert(s.oldPosition >= 0 &&
+           iceToIndex[s.oldPosition] >= 0);
+
+    moveIceBlock(s.movedIceIndex, s.oldPosition, s.newPosition);
+
+    for (auto fpos: change.posClearedFires) {
+        // TODO: check if the cell is fire
+        updateHash(fpos, ObjectType::FIRE);
+        vis[fpos] = 0;
+    }
+}
+
+void BoardView::unapply(const BoardChange& change) {
+    // TODO: revert to previous state;
+    // should find an alternative, "static allocated" way to
+    // effectively iterate over fire positions
+
+    auto& s = change.state;
+    assert(s.oldPosition >= 0 &&
+           iceToIndex[s.oldPosition] < 0);
+
+    // FIXME: guard (s.newPosition < 0 || iceToIndex[s.newPosition] >= 0)
+    // TODO: check consistency with parent state
+    moveIceBlock(s.movedIceIndex, s.newPosition, s.oldPosition);
+
+    for (auto fpos: change.posClearedFires) {
+        // TODO: check if the cell is fire
+        updateHash(fpos, ObjectType::FIRE);
+        vis[fpos] = MARKED;
+    }
+}
+
+void transit(const State& s1, const State& s2) {
+    // TODO: find x = LCA(s1, s2), and restore ice blocks with
+    // s1 -> x -> s2
+
+    // slow operation due to not storing concrete changes on fires
 }

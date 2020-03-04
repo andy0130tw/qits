@@ -2,103 +2,12 @@
 #include <vector>
 #include <queue>
 #include <bitset>
-#include <unordered_map>
-#include <map>
+#include <unordered_set>
 #include <algorithm>
 #include "qits.h"
 #include "board_view.h"
 
-class PatternDatabase {
-public:
-    PatternDatabase() {
-        reset();
-    }
-
-    auto size() { return id2pat.size(); }
-
-    void reset() {
-        id2pat.clear();
-        id2pat.reserve(131072);
-        pat2id.clear();
-        // initialize an empty pattern as id 0
-        queryByPat({});
-    }
-
-    unsigned int queryByPat(PatType pat) {
-        auto it = pat2id.find(pat);
-        if (it != pat2id.end()) {
-            return it->second;
-        }
-
-        int newId = size();
-        pat2id.insert({pat, newId});
-        id2pat.push_back(pat);
-        return newId;
-    }
-
-    PatType queryById(unsigned int id) {
-        if (id >= id2pat.size()) {
-            return PatType(0);
-        }
-        return id2pat[id];
-    }
-private:
-    unordered_map<PatType, unsigned int> pat2id;
-    vector<PatType> id2pat;
-};
-
-struct InitialState {
-    vector<int> icePositions;
-};
-
-struct State {
-    union {
-        InitialState* initial;  // if age == 0
-        State* previous;        // otherwise
-    };
-
-    uint64_t hash;
-    int magicianPos;
-
-    /* only meaningful when age > 0 */
-    unsigned short int age;
-    short int movedIceIndex;
-    short int oldPosition;
-    short int newPosition;
-
-    unsigned int clearedFiresPatId;
-
-    static PatternDatabase& patdb;
-
-    PatType getClearedFires() const {
-        auto kk = State::patdb.queryById(clearedFiresPatId);
-        return kk;
-    }
-
-    unsigned int setClearedFiresPat(PatType pat) {
-        unsigned int id = State::patdb.queryByPat(pat);
-        return (clearedFiresPatId = id);
-    }
-
-    void print() {
-        printf("<State age=%d, pos=%d", age, magicianPos);
-        if (age > 0) {
-            auto clearedFires = State::patdb.queryById(clearedFiresPatId);
-            printf(", #%d: %d -> %d, cf=[", movedIceIndex, oldPosition, newPosition);
-            bool first = true;
-            for (size_t i = 0; i < clearedFires.size(); i++) {
-                if (!clearedFires[i]) continue;
-                printf(first ? "%zd" : ",%zd", i);
-                first = false;
-            }
-        }
-        printf("]>\n");
-    }
-};
-
-static PatternDatabase PATTERN_DB_GLOBAL {};
-
-PatternDatabase& State::patdb = PATTERN_DB_GLOBAL;
+PatternDatabase State::patdb{};
 
 ObjectType reprToObjectType(char c) {
     switch (c) {
@@ -182,10 +91,11 @@ void printConfiguration(BoardConfiguration& board, State& state) {
     }
 }
 
-State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
+BoardChange pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
     int bidx = bview.iceToIndex[pos];
     bool isGoldIce = (bview.config.iceType[bidx] == 1);
-    State newState{s};
+    BoardChange changes{s};
+    State& newState = changes.state;
 
     newState.previous = const_cast<State*>(&s);
     newState.age = s.age + 1;
@@ -197,7 +107,7 @@ State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
     short int npos = newState.oldPosition, peek;
 
     while (peek = bview.next[npos][static_cast<int>(d)], peek > 0) {
-        if (bview.isWall(peek)) {
+        if (bview.isWall(peek) || bview.iceToIndex[peek] >= 0) {
             break;
         }
 
@@ -209,6 +119,7 @@ State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
         } else if (bview.isMarked(peek)) {
             if (bview.fireToIndex[peek] >= 0) {
                 // encounter a FIRE
+                changes.posClearedFires.push_back(peek);
                 npat[bview.fireToIndex[peek]] = 1;
                 if (!isGoldIce) {
                     npos = -1;
@@ -220,41 +131,37 @@ State pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
 
     newState.newPosition = npos;
     newState.setClearedFiresPat(npat);
-    return newState;
+
+    return changes;
 }
 
 // check for reachability & normalize magician position
-void exploreBoard(BoardView& bview) {
+// are encoded as (idx << 8) + direction
+vector<int> exploreBoard(BoardView& bview) {
     // BFS to explore reachable positions of magician
-    vector<vector<int>> pushables;
-    pushables.resize(bview.config.iceType.size());
+    vector<int> pushables;
     auto& vis = bview.vis;
     bview.tick();
 
-    int normalizedPosition = bview.magicianPos;
+    unsigned int normalizedPosition = bview.magicianPos;
     queue<int> q;
+
     vis[bview.magicianPos] = bview.ts;
     q.push(bview.magicianPos);
-
-    for (auto& x: pushables) {
-        for (int i = 0; i < static_cast<int>(Direction::_ALL); i++) {
-            x.push_back(-1);
-        }
-    }
 
     while (!q.empty()) {
         int s = q.front();
         q.pop();
 
-        if (s < normalizedPosition) {
+        if (static_cast<unsigned int>(s) < normalizedPosition) {
             normalizedPosition = s;
         }
 
-        int t, dest;
+        int t;
         // left
         if (t = s-1, s % MAP_W != 0) {
-            if (dest = bview.canPushTo(t, Direction::LEFT), dest >= 0) {
-                pushables[bview.iceToIndex[t]][(int)Direction::LEFT] = dest;
+            if (bview.canPushTo(t, Direction::LEFT)) {
+                pushables.push_back((t << 8) | static_cast<int>(Direction::LEFT));
             } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
@@ -262,8 +169,8 @@ void exploreBoard(BoardView& bview) {
         }
         // right
         if (t = s+1, t % MAP_W != 0) {
-            if (dest = bview.canPushTo(t, Direction::RIGHT), dest >= 0) {
-                pushables[bview.iceToIndex[t]][(int)Direction::RIGHT] = dest;
+            if (bview.canPushTo(t, Direction::RIGHT)) {
+                pushables.push_back((t << 8) | static_cast<int>(Direction::RIGHT));
             } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
@@ -271,8 +178,8 @@ void exploreBoard(BoardView& bview) {
         }
         // up
         if (t = s-MAP_W, t >= 0) {
-            if (dest = bview.canPushTo(t, Direction::UP), dest >= 0) {
-                pushables[bview.iceToIndex[t]][(int)Direction::UP] = dest;
+            if (bview.canPushTo(t, Direction::UP)) {
+                pushables.push_back((t << 8) | static_cast<int>(Direction::UP));
             } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
@@ -280,8 +187,8 @@ void exploreBoard(BoardView& bview) {
         }
         // down
         if (t = s+MAP_W, t < MAP_SIZE) {
-            if (dest = bview.canPushTo(t, Direction::DOWN), dest >= 0) {
-                pushables[bview.iceToIndex[t]][(int)Direction::DOWN] = dest;
+            if (bview.canPushTo(t, Direction::DOWN)) {
+                pushables.push_back((t << 8) | static_cast<int>(Direction::DOWN));
             } else if (bview.isFresh(t)) {
                 vis[t] = bview.ts;
                 q.push(t);
@@ -289,31 +196,13 @@ void exploreBoard(BoardView& bview) {
         }
     }
 
-    bview.magicianPos = normalizedPosition;
-
-    bview.print();
-
-    printf("Pushables ---\n");
-    for (size_t i = 0; i < pushables.size(); i++) {
-        bool any = false;
-        for (int j = 0; j < 4; j++) {
-            if (pushables[i][j] >= 0) {
-                any = true;
-                break;
-            }
-        }
-        if (!any) continue;
-
-        printf("%3zd: ", i);
-        for (int j = 0; j < 4; j++) {
-            if (pushables[i][j] >= 0) {
-                printf("%c: %3d ", "^v<>"[j], pushables[i][j]);
-            } else {
-                printf("       ");
-            }
-        }
-        printf("\n");
+    if (bview.magicianPos != normalizedPosition) {
+        bview.updateHash(bview.magicianPos, ObjectType::MAGICIAN);
+        bview.updateHash(normalizedPosition, ObjectType::MAGICIAN);
+        bview.magicianPos = normalizedPosition;
     }
+
+    return pushables;
 }
 
 bool readFloorFileFromStdin(BoardConfiguration& board, InitialState& state_init, State& state_root) {
@@ -397,6 +286,66 @@ BoardView initBoardView(const BoardConfiguration& board, const InitialState& sta
     return bview;
 }
 
+static vector<int> pushablesCache[256];
+static unordered_set<uint64_t> stateHashTable;
+static vector<BoardChange> solution;
+
+bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int depthLimit) {
+    if (depth == depthLimit) {
+        return false;
+    }
+
+    bool found = true;
+    PatType pat = s.getClearedFires();
+    for (size_t i = 0; i < bview.config.fires.size(); i++) {
+        if (pat[i] != 1) {
+            found = false;
+            break;
+        }
+    }
+    if (found) {
+        return true;
+    }
+
+    auto& pushables = pushablesCache[depth];
+
+    for (auto& enc: pushables) {
+        int idx = enc >> 8;
+        Direction dir = static_cast<Direction>(enc & 0xff);
+        // printf("depth=%u, idx=%d, dir=%d\n", depth, idx, enc & 0xff);
+
+        uint64_t hashBefore = bview.hash;
+
+        auto change = pushIceBlock(bview, s, idx, dir);
+        bview.apply(change);
+        // bview.print();
+        pushablesCache[depth+1] = exploreBoard(bview);
+
+        bool solved = false;
+        if (stateHashTable.find(bview.hash) == stateHashTable.end()) {
+            stateHashTable.insert(bview.hash);
+            solved = dfs(bview, change.state, depth + 1, depthLimit);
+        }
+
+        bview.unapply(change);
+
+        // only verifying
+        exploreBoard(bview);
+        // bview.print();
+        if (bview.hash != hashBefore) {
+            printf("Hash mismatch!!\n");
+            return false;
+        }
+
+        if (solved) {
+            solution.push_back(move(change));
+            return true;
+        }
+    }
+
+    return false;
+}
+
 int main() {
     BoardConfiguration board {};
     InitialState state_init {};
@@ -415,9 +364,41 @@ int main() {
 
     BoardView bview = initBoardView(board, state_init);
     bview.magicianPos = state_root.magicianPos;
+    bview.updateHash(bview.magicianPos, ObjectType::MAGICIAN);
 
-    exploreBoard(bview);
+    pushablesCache[0] = exploreBoard(bview);
+    stateHashTable.insert(bview.hash);
 
-    // State s2 = pushIceBlock(bview, state_root, 233, Direction::UP);
-    // s2.print();
+    bool solved = false;
+
+    for (int lim = 0; lim < 20; lim++) {
+        printf("Trying %d steps...\n", lim);
+        stateHashTable.clear();
+
+        solution.reserve(lim);
+        bool s = dfs(bview, state_root, 0, lim);
+
+        if (s) {
+            printf("====== SOLVED! ======\n");
+
+            reverse(solution.begin(), solution.end());
+
+            for (auto& step: solution) {
+                bview.print();
+                printf("STEP -->  ");
+                step.state.print();
+                bview.apply(step);
+            }
+            bview.print();
+            printf("====== END OF SOLUTION ======\n");
+            solved = true;
+            break;
+        }
+
+        printf("Explored %zd states\n", stateHashTable.size());
+    }
+
+    if (!solved) {
+        printf("No solution.\n");
+    }
 }
