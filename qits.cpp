@@ -70,7 +70,7 @@ void printConfiguration(BoardConfiguration& board, State& state) {
     auto ices = icePositionsAtState(state);
 
     for (auto i: ices) {
-        buf[i] = '%';
+        buf[i] = board.iceType[i] ? '$' : '%';
     }
 
     for (int i = 0; i < MAP_H; i++) {
@@ -91,7 +91,7 @@ void printConfiguration(BoardConfiguration& board, State& state) {
     }
 }
 
-BoardChange pushIceBlock(BoardView& bview, const State& s, int pos, Direction d) {
+BoardChange pushIceBlock(const BoardView& bview, const State& s, int pos, Direction d) {
     int bidx = bview.iceToIndex[pos];
     bool isGoldIce = (bview.config.iceType[bidx] == 1);
     BoardChange changes{s};
@@ -142,6 +142,9 @@ vector<int> exploreBoard(BoardView& bview) {
     vector<int> pushables;
     auto& vis = bview.vis;
     bview.tick();
+
+    // re-allocating is slow
+    pushables.reserve(128);
 
     unsigned int normalizedPosition = bview.magicianPos;
     queue<int> q;
@@ -296,16 +299,31 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
     }
 
     auto& pushables = pushablesCache[depth];
+    auto len = pushables.size();
 
-    for (auto& enc: pushables) {
-        int idx = enc >> 8;
-        Direction dir = static_cast<Direction>(enc & 0xff);
-        // printf("depth=%u, idx=%d, dir=%d\n", depth, idx, enc & 0xff);
+    struct {
+        int idx;
+        Direction dir;
+        BoardChange change;
+    } changeList[len];
+
+    for (size_t i = 0; i < len; i++) {
+        int idx = pushables[i] >> 8;
+        Direction dir = static_cast<Direction>(pushables[i] & 0xff);
+        changeList[i] = { idx, dir, pushIceBlock(bview, s, idx, dir) };
+    }
+
+    // prioritize a move that clears more fire
+    sort(changeList, changeList + len, [](auto& a, auto& b) -> bool {
+        return a.change.posClearedFires.size() > b.change.posClearedFires.size();
+    });
+
+    for (size_t i = 0; i < pushables.size(); i++) {
+        auto& change = changeList[i].change;
 
         uint64_t hashBefore = bview.hash;
         unsigned int magicianPosOld = bview.magicianPos;
 
-        auto change = pushIceBlock(bview, s, idx, dir);
         bview.apply(change);
         // bview.print();
         pushablesCache[depth+1] = exploreBoard(bview);
@@ -317,6 +335,7 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
         }
 
         bview.unapply(change);
+        bview.setMagicianPos(magicianPosOld);
 
         // only verifying
         exploreBoard(bview);

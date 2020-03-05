@@ -20,9 +20,9 @@ struct BoardView {
 
     BoardView(const BoardConfiguration& config);
 
-    inline bool isWall(int pos) { return vis[pos] == WALL; }
-    inline bool isMarked(int pos) { return vis[pos] == MARKED; }
-    inline bool isFresh(int pos) { return (iceToIndex[pos] < 0 && vis[pos] < ts); }
+    inline bool isWall(int pos) const { return vis[pos] == WALL; }
+    inline bool isMarked(int pos) const { return vis[pos] == MARKED; }
+    inline bool isFresh(int pos) const { return (iceToIndex[pos] < 0 && vis[pos] < ts); }
 
     inline void tick() {
         if (ts < BoardView::TS_MAX) {
