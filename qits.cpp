@@ -114,8 +114,10 @@ BoardChange pushIceBlock(const BoardView& bview, const State& s, int pos, Direct
         npos = peek;
 
         if (bview.config.map[peek] == ObjectType::RECYCLER) {
-            npos = -1;
-            break;
+            if (!isGoldIce) {
+                npos = -1;
+                break;
+            }
         } else if (bview.isMarked(peek)) {
             if (bview.fireToIndex[peek] >= 0) {
                 // encounter a FIRE
