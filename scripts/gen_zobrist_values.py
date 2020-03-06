@@ -1,6 +1,6 @@
 import random
 
-N = 31
+N = 64
 size = 20 * 14
 categories = ['ICE', 'FIRE', 'ICE_GOLD', 'MAGICIAN']
 

@@ -48,8 +48,20 @@ enum class Direction {
     _ALL,
 };
 
-using PatType = bitset<MAX_FIRE>;
+static inline Direction oppositeDirection(Direction d) {
+    switch (d) {
+    case Direction::UP:    return Direction::DOWN;
+    case Direction::DOWN:  return Direction::UP;
+    case Direction::LEFT:  return Direction::RIGHT;
+    case Direction::RIGHT: return Direction::LEFT;
+    default: ;
+    }
+    __builtin_unreachable();
+    return Direction::_ALL;
+}
 
+
+using PatType = bitset<MAX_FIRE>;
 
 class PatternDatabase {
 public:
@@ -151,6 +163,11 @@ struct BoardChange {
     // often, it has only one element,
     // but golden ices make it uncertain QQ
     vector<int> posClearedFires;
+
+    BoardChange() : BoardChange(State()) {}
+    BoardChange(const State s) : state{s} {
+        posClearedFires.reserve(1);
+    }
 };
 
 #endif  // __QITS_QITS_H

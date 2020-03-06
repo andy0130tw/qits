@@ -105,6 +105,8 @@ BoardChange pushIceBlock(const BoardView& bview, const State& s, int pos, Direct
     PatType npat = s.getClearedFires();
 
     short int npos = newState.oldPosition, peek;
+    newState.magicianPos = static_cast<short int>(
+        bview.next[npos][static_cast<int>(oppositeDirection(d))]);
 
     while (peek = bview.next[npos][static_cast<int>(d)], peek > 0) {
         if (bview.isWall(peek) || bview.iceToIndex[peek] >= 0) {
@@ -383,7 +385,8 @@ int main() {
     }
 
     if (State::patdb.queryByPat(completedPat) != 1) {
-        printf("Owo no!\n");
+        eprintf("Pattern database is corrupted. This should not happen.\n");
+        abort();
     }
 
     pushablesCache[0] = exploreBoard(bview);
