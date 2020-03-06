@@ -78,11 +78,11 @@ void BoardView::updateHash(int pos, ObjectType t) {
     hash ^= getZobristValues(t)[pos];
 }
 
-bool BoardView::verifyHash() {
+bool BoardView::verifyHash() const {
     uint64_t test = 0;
     for (int i = 0; i < MAP_SIZE; i++) {
         if (iceToIndex[i] >= 0) {
-            ObjectType tp = config.iceType[iceToIndex[i]] == 1 ? ObjectType::ICE_GOLD : ObjectType::ICE;
+            ObjectType tp = config.getIceTypeAtIndex(iceToIndex[i]);
             test ^= getZobristValues(tp)[i];
         } else if (isMarked(i) && fireToIndex[i] >= 0) {
             test ^= getZobristValues(ObjectType::FIRE)[i];
@@ -106,7 +106,7 @@ void BoardView::moveIceBlock(int idx, int from, int to) {
     // TODO: check if this application is legitimate
     assert(from != to);
 
-    auto iceType = (config.iceType[idx] == 1 ? ObjectType::ICE_GOLD : ObjectType::ICE);
+    ObjectType iceType = config.getIceTypeAtIndex(idx);
 
     if (from >= 0) {
         iceToIndex[from] = -1;

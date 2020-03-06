@@ -51,7 +51,7 @@ struct BoardView {
         return false;
     }
     void updateHash(int pos, ObjectType t);
-    bool verifyHash();
+    bool verifyHash() const;
     void setMagicianPos(unsigned int npos);
     void moveIceBlock(int idx, int from, int to);
 

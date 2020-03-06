@@ -93,7 +93,7 @@ void printConfiguration(BoardConfiguration& board, State& state) {
 
 BoardChange pushIceBlock(const BoardView& bview, const State& s, int pos, Direction d) {
     int bidx = bview.iceToIndex[pos];
-    bool isGoldIce = (bview.config.iceType[bidx] == 1);
+    bool isGoldIce = (bview.config.getIceTypeAtIndex(bidx) == ObjectType::ICE_GOLD);
     BoardChange changes{s};
     State& newState = changes.state;
 
@@ -277,7 +277,7 @@ BoardView initBoardView(const BoardConfiguration& board, const InitialState& sta
     for (size_t i = 0; i < state_init.icePositions.size(); i++) {
         int p = state_init.icePositions[i];
         bview.iceToIndex[p] = i;
-        bview.updateHash(p, ObjectType::ICE);
+        bview.updateHash(p, board.getIceTypeAtIndex(i));
     }
 
     for (size_t i = 0; i < board.fires.size(); i++) {

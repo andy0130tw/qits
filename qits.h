@@ -106,6 +106,10 @@ struct BoardConfiguration {
     vector<int> fires;
     vector<unsigned char> iceType;
     ObjectType map[MAP_SIZE];
+
+    inline ObjectType getIceTypeAtIndex(int idx) const {
+        return iceType[idx] == 1 ? ObjectType::ICE_GOLD : ObjectType::ICE;
+    }
 };
 
 
