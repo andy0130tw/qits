@@ -152,8 +152,9 @@ struct State {
                 printf(first ? "%zd" : ",%zd", i);
                 first = false;
             }
+            printf("]");
         }
-        printf("]>\n");
+        printf(">\n");
     }
 };
 

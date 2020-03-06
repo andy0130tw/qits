@@ -51,7 +51,9 @@ struct BoardView {
         return false;
     }
     void updateHash(int pos, ObjectType t);
+    bool verifyHash();
     void setMagicianPos(unsigned int npos);
+    void moveIceBlock(int idx, int from, int to);
 
     void apply(const BoardChange& change);
     void unapply(const BoardChange& change);
@@ -69,8 +71,6 @@ struct BoardView {
         }
         nextInited = true;
     }
-
-    void moveIceBlock(int idx, int from, int to);
 };
 
 #endif  // __QITS_BOARD_VIEW_H

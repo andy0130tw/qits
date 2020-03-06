@@ -5,6 +5,18 @@
 int BoardView::next[][static_cast<int>(Direction::_ALL)];
 bool BoardView::nextInited;
 
+static inline const uint64_t* getZobristValues(ObjectType t) {
+    switch (t) {
+    case ObjectType::ICE:      return ZOBRIST_VALUES[0];
+    case ObjectType::FIRE:     return ZOBRIST_VALUES[1];
+    case ObjectType::ICE_GOLD: return ZOBRIST_VALUES[2];
+    case ObjectType::MAGICIAN: return ZOBRIST_VALUES[3];
+    default:
+        __builtin_unreachable();
+        return nullptr;
+    }
+}
+
 BoardView::BoardView(const BoardConfiguration& config):
     config(config), vis(), ts(0), hash(0) {
     if (!nextInited) {
@@ -56,26 +68,30 @@ void BoardView::print() {
         printf("\n");
     }
 
-    printf("Normalized pos: %d\n", magicianPos);
+    printf("Magician position: %d\n", magicianPos);
 }
 
 void BoardView::updateHash(int pos, ObjectType t) {
-    const uint64_t* blk;
-    switch (t) {
-    case ObjectType::ICE:      blk = ZOBRIST_VALUES[0]; break;
-    case ObjectType::FIRE:     blk = ZOBRIST_VALUES[1]; break;
-    case ObjectType::ICE_GOLD: blk = ZOBRIST_VALUES[2]; break;
-    case ObjectType::MAGICIAN: blk = ZOBRIST_VALUES[3]; break;
-    default:
-        __builtin_unreachable();
+    // fprintf(stderr, "hash upd tp=%zd pos=%d\n",
+    //         (getZobristValues(t) - ZOBRIST_VALUES[0]) / MAP_SIZE,
+    //         pos);
+    hash ^= getZobristValues(t)[pos];
+}
+
+bool BoardView::verifyHash() {
+    uint64_t test = 0;
+    for (int i = 0; i < MAP_SIZE; i++) {
+        if (iceToIndex[i] >= 0) {
+            ObjectType tp = config.iceType[iceToIndex[i]] == 1 ? ObjectType::ICE_GOLD : ObjectType::ICE;
+            test ^= getZobristValues(tp)[i];
+        } else if (isMarked(i) && fireToIndex[i] >= 0) {
+            test ^= getZobristValues(ObjectType::FIRE)[i];
+        }
     }
 
+    test ^= getZobristValues(ObjectType::MAGICIAN)[magicianPos];
 
-    // fprintf(stderr, "hash upd tp=%zd pos=%d\n",
-    //         (blk - ZOBRIST_VALUES[0]) / MAP_SIZE,
-    //         pos);
-
-    hash ^= blk[pos];
+    return hash == test;
 }
 
 void BoardView::setMagicianPos(unsigned int npos) {
@@ -139,9 +155,10 @@ void BoardView::unapply(const BoardChange& change) {
     }
 }
 
-void transit(const State& s1, const State& s2) {
+void BoardView::transit(const State& s1, const State& s2) {
     // TODO: find x = LCA(s1, s2), and restore ice blocks with
     // s1 -> x -> s2
 
     // slow operation due to not storing concrete changes on fires
 }
+

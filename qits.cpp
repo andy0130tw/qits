@@ -139,8 +139,9 @@ BoardChange pushIceBlock(const BoardView& bview, const State& s, int pos, Direct
     return changes;
 }
 
-// check for reachability & normalize magician position
-// are encoded as (idx << 8) + direction
+// check for reachability & set magician position on the view
+// to a normalized one. Beware of that side-effect!
+// pushables are encoded as "(idx << 8) + direction"
 vector<int> exploreBoard(BoardView& bview) {
     // BFS to explore reachable positions of magician
     vector<int> pushables;
@@ -302,6 +303,12 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
         return true;
     }
 
+    if (!bview.verifyHash()) {
+        eprintf("Hash mismatch!\n");
+        bview.print();
+        return false;
+    }
+
     auto& pushables = pushablesCache[depth];
     auto len = pushables.size();
 
@@ -319,17 +326,20 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
 
     // prioritize a move that clears more fire
     sort(changeList, changeList + len, [](auto& a, auto& b) -> bool {
-        return a.change.posClearedFires.size() > b.change.posClearedFires.size();
+        size_t sa = a.change.posClearedFires.size();
+        size_t sb = b.change.posClearedFires.size();
+        if (sa != sb) return sa > sb;
+        // break the tie by their indicies
+        return a.change.state.movedIceIndex < b.change.state.movedIceIndex;
     });
 
     for (size_t i = 0; i < pushables.size(); i++) {
         auto& change = changeList[i].change;
 
-        uint64_t hashBefore = bview.hash;
         unsigned int magicianPosOld = bview.magicianPos;
 
         bview.apply(change);
-        // bview.print();
+        bview.setMagicianPos(change.state.magicianPos);
         pushablesCache[depth+1] = exploreBoard(bview);
 
         bool solved = false;
@@ -340,14 +350,6 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
 
         bview.unapply(change);
         bview.setMagicianPos(magicianPosOld);
-
-        // only verifying
-        exploreBoard(bview);
-        // bview.print();
-        if (bview.hash != hashBefore) {
-            printf("Hash mismatch!!\n");
-            return false;
-        }
 
         if (solved) {
             solution.push_back(move(change));
@@ -411,6 +413,8 @@ int main() {
 
             for (auto& step: solution) {
                 exploreBoard(bview);
+                // undo the normalization
+                bview.setMagicianPos(step.state.magicianPos);
                 bview.print();
                 printf("STEP -->  ");
                 step.state.print();
