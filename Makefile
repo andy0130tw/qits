@@ -1,5 +1,5 @@
 CXX ?= g++
-CPPFLAGS = -g -Wall -Wno-unused-result
+CPPFLAGS = -O2 -flto -Wall -Wno-unused-result
 LIBS = qits.o board_view.o
 
 LINK.o = $(LINK.cc)

@@ -295,17 +295,11 @@ static unordered_set<uint64_t> stateHashTable;
 static vector<BoardChange> solution;
 
 bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int depthLimit) {
-    if (depth == depthLimit) {
-        return false;
-    }
-
     if (s.clearedFiresPatId == 1) {
         return true;
     }
 
-    if (!bview.verifyHash()) {
-        eprintf("Hash mismatch!\n");
-        bview.print();
+    if (depth == depthLimit) {
         return false;
     }
 
@@ -392,13 +386,16 @@ int main() {
     }
 
     pushablesCache[0] = exploreBoard(bview);
-    stateHashTable.insert(bview.hash);
+    bview.print();
 
+    const uint64_t initialHash = bview.hash;
     bool solved = false;
 
     for (int lim = 0; lim < 20; lim++) {
         printf("Trying %d steps...\n", lim);
+
         stateHashTable.clear();
+        stateHashTable.insert(initialHash);
 
         solution.reserve(lim);
         bool s = dfs(bview, state_root, 0, lim);
