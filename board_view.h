@@ -29,7 +29,7 @@ struct BoardView {
             ts++;
         } else {
             for (int i = 0; i < MAP_SIZE; i++) {
-                if (vis[i] < TS_MAX) {
+                if (vis[i] <= TS_MAX) {
                     vis[i] = 0;
                 }
             }

@@ -12,5 +12,5 @@ clean:
 zobrist_values:
 	python scripts/gen_zobrist_values.py > zobrist_values.h
 
-qits.o: qits.h
+qits.o: qits.h board_view.h
 board_view.o: qits.h board_view.h
