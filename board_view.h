@@ -50,9 +50,16 @@ struct BoardView {
         }
         return false;
     }
+    inline void setMagicianPos(unsigned int npos) {
+        if (magicianPos != npos) {
+            updateHash(magicianPos, ObjectType::MAGICIAN);
+            updateHash(npos, ObjectType::MAGICIAN);
+            magicianPos = npos;
+        }
+    }
+
     void updateHash(int pos, ObjectType t);
     bool verifyHash() const;
-    void setMagicianPos(unsigned int npos);
     void moveIceBlock(int idx, int from, int to);
 
     void apply(const BoardChange& change);

@@ -319,15 +319,17 @@ bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int dept
     }
 
     // prioritize a move that clears more fire
-    sort(changeList, changeList + len, [](auto& a, auto& b) -> bool {
-        size_t sa = a.change.posClearedFires.size();
-        size_t sb = b.change.posClearedFires.size();
-        if (sa != sb) return sa > sb;
-        // break the tie by their indicies
-        return a.change.state.movedIceIndex < b.change.state.movedIceIndex;
-    });
+    if (depth == depthLimit - 1) {
+        sort(changeList, changeList + len, [](auto& a, auto& b) -> bool {
+            size_t sa = a.change.posClearedFires.size();
+            size_t sb = b.change.posClearedFires.size();
+            if (sa != sb) return sa > sb;
+            // break the tie by their indicies
+            return a.change.state.movedIceIndex < b.change.state.movedIceIndex;
+        });
+    }
 
-    for (size_t i = 0; i < pushables.size(); i++) {
+    for (size_t i = 0; i < len; i++) {
         auto& change = changeList[i].change;
 
         unsigned int magicianPosOld = bview.magicianPos;

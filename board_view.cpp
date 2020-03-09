@@ -94,14 +94,6 @@ bool BoardView::verifyHash() const {
     return hash == test;
 }
 
-void BoardView::setMagicianPos(unsigned int npos) {
-    if (magicianPos != npos) {
-        updateHash(magicianPos, ObjectType::MAGICIAN);
-        updateHash(npos, ObjectType::MAGICIAN);
-        magicianPos = npos;
-    }
-}
-
 void BoardView::moveIceBlock(int idx, int from, int to) {
     // TODO: check if this application is legitimate
     assert(from != to);
