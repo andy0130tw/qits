@@ -293,8 +293,13 @@ BoardView initBoardView(const BoardConfiguration& board, const InitialState& sta
 static vector<int> pushablesCache[256];
 static unordered_set<uint64_t> stateHashTable;
 static vector<BoardChange> solution;
+static size_t exploredStateCount;
 
 bool dfs(BoardView& bview, const State& s, unsigned int depth, unsigned int depthLimit) {
+    if (exploredStateCount % 100000 == 0) {
+        printf("... %zd\n", exploredStateCount);
+    }
+
     if (s.clearedFiresPatId == 1) {
         return true;
     }
@@ -368,8 +373,6 @@ int main() {
         return 1;
     }
 
-    // TODO: normalize magician position
-
     printConfiguration(board, state_root);
 
     BoardView bview = initBoardView(board, state_init);
@@ -396,13 +399,19 @@ int main() {
     for (int lim = 0; lim < 20; lim++) {
         printf("Trying %d steps...\n", lim);
 
+        exploredStateCount = 1;
         stateHashTable.clear();
         stateHashTable.insert(initialHash);
 
         solution.reserve(lim);
         bool s = dfs(bview, state_root, 0, lim);
 
-        printf("Explored %zd states\n", stateHashTable.size());
+        if (bview.hash != initialHash) {
+            eprintf("Hash mismatch!\n");
+            abort();
+        }
+
+        printf("Explored %zd states (%zd unique)\n", exploredStateCount, stateHashTable.size());
         printf("Patterns generated = %zd\n", State::patdb.size());
 
         if (s) {

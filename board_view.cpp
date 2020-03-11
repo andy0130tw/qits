@@ -147,10 +147,54 @@ void BoardView::unapply(const BoardChange& change) {
     }
 }
 
-void BoardView::transit(const State& s1, const State& s2) {
+void BoardView::transit(const State& _s1, const State& _s2) {
     // TODO: find x = LCA(s1, s2), and restore ice blocks with
     // s1 -> x -> s2
+    const State* s1 = &_s1, * s2 = &_s2;
+
+    vector<const State*> backwardStates;
+    vector<const State*> forwardStates;
+
+    if (s1->age > s2->age) {
+        while (s1->age != s2->age) {
+            backwardStates.push_back(s1);
+            s1 = s1->previous;
+        }
+    } else {
+        while (s1->age != s2->age) {
+            forwardStates.push_back(s2);
+            s2 = s2->previous;
+        }
+    }
+
+    while (s1 != s2) {
+        backwardStates.push_back(s1);
+        forwardStates.push_back(s2);
+        s1 = s1->previous;
+        s2 = s2->previous;
+    }
+
+    // s1 -> x
+    for (auto s: backwardStates) {
+        moveIceBlock(s->movedIceIndex, s->newPosition, s->oldPosition);
+    }
+    // x -> s2
+    for (auto s: forwardStates) {
+        moveIceBlock(s->movedIceIndex, s->oldPosition, s->newPosition);
+    }
+
+    PatType shouldBeCleared = _s2.getClearedFires();
 
     // slow operation due to not storing concrete changes on fires
+    for (size_t i = 0; i < config.fires.size(); i++) {
+        unsigned int fpos = config.fires[i];
+        if (shouldBeCleared[i] && vis[fpos] == MARKED) {
+            updateHash(fpos, ObjectType::FIRE);
+            vis[fpos] = 0;
+        } else if (!shouldBeCleared[i] && vis[fpos] != MARKED) {
+            updateHash(fpos, ObjectType::FIRE);
+            vis[fpos] = MARKED;
+        }
+    }
 }
 
