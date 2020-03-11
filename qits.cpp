@@ -69,9 +69,11 @@ void printConfiguration(BoardConfiguration& board, State& state) {
 
     auto ices = icePositionsAtState(state);
 
-    for (auto i: ices) {
-        buf[i] = board.iceType[i] ? '$' : '%';
+    for (size_t i = 0; i < ices.size(); i++) {
+        buf[ices[i]] = board.iceType[i] ? '$' : '%';
     }
+
+    buf[state.magicianPos] = '@';
 
     for (int i = 0; i < MAP_H; i++) {
         for (int j = 0; j < MAP_W; j++) {
